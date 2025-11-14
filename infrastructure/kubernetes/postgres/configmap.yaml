@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init-script
+  namespace: forecast-system
+data:
+  init.sql: |
+    CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+    -- Остальные SQL команды из postgres-init.sql будут добавлены через ConfigMap
+    -- или через init container
+

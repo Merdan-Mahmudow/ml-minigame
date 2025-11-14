@@ -1,0 +1,94 @@
+# Общий файл со всеми сервисами (для удобства)
+# Включает все остальные сервисы
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: forecast-storage
+  namespace: forecast-system
+spec:
+  selector:
+    app: forecast-storage
+  ports:
+  - port: 8008
+    targetPort: 8008
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: data-collector
+  namespace: forecast-system
+spec:
+  selector:
+    app: data-collector
+  ports:
+  - port: 8003
+    targetPort: 8003
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: news-collector
+  namespace: forecast-system
+spec:
+  selector:
+    app: news-collector
+  ports:
+  - port: 8004
+    targetPort: 8004
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: feature-pipeline
+  namespace: forecast-system
+spec:
+  selector:
+    app: feature-pipeline
+  ports:
+  - port: 8005
+    targetPort: 8005
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: model-registry
+  namespace: forecast-system
+spec:
+  selector:
+    app: model-registry
+  ports:
+  - port: 8007
+    targetPort: 8007
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: monitoring-service
+  namespace: forecast-system
+spec:
+  selector:
+    app: monitoring-service
+  ports:
+  - port: 8009
+    targetPort: 8009
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: forecast-system
+spec:
+  selector:
+    app: frontend
+  ports:
+  - port: 3000
+    targetPort: 3000
+  type: LoadBalancer
+

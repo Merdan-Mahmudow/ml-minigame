@@ -1,0 +1,23 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'forecast-services'
+    static_configs:
+      - targets: 
+        - 'api-gateway:8000'
+        - 'asset-service:8001'
+        - 'forecast-service:8002'
+        - 'data-collector:8003'
+        - 'news-collector:8004'
+        - 'feature-pipeline:8005'
+        - 'model-training:8006'
+        - 'model-registry:8007'
+        - 'forecast-storage:8008'
+        - 'monitoring-service:8009'
+

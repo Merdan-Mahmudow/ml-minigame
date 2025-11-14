@@ -1,0 +1,191 @@
+version: '3.8'
+
+services:
+  # PostgreSQL для метаданных
+  postgres:
+    image: postgres:15-alpine
+    container_name: forecast-postgres
+    environment:
+      POSTGRES_USER: forecast_user
+      POSTGRES_PASSWORD: forecast_password
+      POSTGRES_DB: forecast_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forecast_user -d forecast_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - forecast-network
+
+  # ClickHouse для временных рядов
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: forecast-clickhouse
+    environment:
+      CLICKHOUSE_DB: forecast_ts
+      CLICKHOUSE_USER: forecast_user
+      CLICKHOUSE_PASSWORD: forecast_password
+    ports:
+      - "8123:8123"  # HTTP
+      - "9000:9000"  # Native
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./init-scripts/clickhouse-init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - forecast-network
+
+  # MinIO (S3-совместимое хранилище)
+  minio:
+    image: minio/minio:latest
+    container_name: forecast-minio
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    ports:
+      - "9001:9001"  # Console
+      - "9000:9000"  # API
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - forecast-network
+
+  # MinIO Client для создания buckets
+  minio-setup:
+    image: minio/mc:latest
+    container_name: forecast-minio-setup
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      sleep 5;
+      mc alias set myminio http://minio:9000 minioadmin minioadmin123;
+      mc mb myminio/raw-data || true;
+      mc mb myminio/model-artifacts || true;
+      mc mb myminio/feature-store || true;
+      mc anonymous set download myminio/raw-data;
+      exit 0;
+      "
+    networks:
+      - forecast-network
+
+  # Redpanda (Kafka-совместимый брокер)
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:latest
+    container_name: forecast-redpanda
+    command:
+      - redpanda
+      - start
+      - --kafka-addr
+      - internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr
+      - internal://redpanda:9092,external://localhost:19092
+      - --pandaproxy-addr
+      - internal://0.0.0.0:8082,external://0.0.0.0:18082
+      - --advertise-pandaproxy-addr
+      - internal://redpanda:8082,external://localhost:18082
+      - --schema-registry-addr
+      - internal://0.0.0.0:8081,external://0.0.0.0:18081
+      - --rpc-addr
+      - redpanda:33145
+      - --advertise-rpc-addr
+      - redpanda:33145
+      - --smp
+      - '1'
+      - --memory
+      - 1G
+      - --mode dev-container
+      - --default-log-level=info
+    ports:
+      - "18081:18081"  # Schema Registry
+      - "18082:18082"  # Pandaproxy
+      - "19092:19092"  # Kafka API
+      - "19644:9644"   # Admin API
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - forecast-network
+
+  # Redis для Feature Store и кеширования
+  redis:
+    image: redis:7-alpine
+    container_name: forecast-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - forecast-network
+
+  # Prometheus для метрик
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: forecast-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      - forecast-network
+
+  # Grafana для визуализации
+  grafana:
+    image: grafana/grafana:latest
+    container_name: forecast-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin123
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - prometheus
+    networks:
+      - forecast-network
+
+volumes:
+  postgres_data:
+  clickhouse_data:
+  minio_data:
+  redpanda_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  forecast-network:
+    driver: bridge
+
