@@ -1,6 +1,41 @@
 version: '3.8'
 
 services:
+  # Traefik - Reverse Proxy с SSL/TLS
+  traefik:
+    image: traefik:v3.0
+    container_name: forecast-traefik
+    command:
+      - "--api.dashboard=true"
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.email=softprank@gmail.com"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      - "--certificatesresolvers.letsencrypt.acme.caserver=https://acme-v02.api.letsencrypt.org/directory"
+      - "--log.level=INFO"
+      - "--accesslog=true"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"  # Dashboard
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik_letsencrypt:/letsencrypt
+    networks:
+      - forecast-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik.rule=Host(`traefik.skyrodev.ru`)"
+      - "traefik.http.routers.traefik.entrypoints=websecure"
+      - "traefik.http.routers.traefik.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.traefik.service=api@internal"
+      - "traefik.http.routers.traefik.middlewares=auth"
+      - "traefik.http.middlewares.auth.basicauth.users=admin:$$apr1$$8k8k8k8k$$8k8k8k8k8k8k8k8k"  # admin:admin (изменить пароль!)
+
   # PostgreSQL для метаданных
   postgres:
     image: postgres:15-alpine
@@ -9,8 +44,6 @@ services:
       POSTGRES_USER: forecast_user
       POSTGRES_PASSWORD: forecast_password
       POSTGRES_DB: forecast_db
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init-scripts/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -21,6 +54,8 @@ services:
       retries: 5
     networks:
       - forecast-network
+    labels:
+      - "traefik.enable=false"
 
   # ClickHouse для временных рядов
   clickhouse:
@@ -30,9 +65,6 @@ services:
       CLICKHOUSE_DB: forecast_ts
       CLICKHOUSE_USER: forecast_user
       CLICKHOUSE_PASSWORD: forecast_password
-    ports:
-      - "8123:8123"  # HTTP
-      - "9000:9000"  # Native
     volumes:
       - clickhouse_data:/var/lib/clickhouse
       - ./init-scripts/clickhouse-init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -43,6 +75,8 @@ services:
       retries: 5
     networks:
       - forecast-network
+    labels:
+      - "traefik.enable=false"
 
   # MinIO (S3-совместимое хранилище)
   minio:
@@ -51,9 +85,6 @@ services:
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin123
-    ports:
-      - "9001:9001"  # Console
-      - "9000:9000"  # API
     volumes:
       - minio_data:/data
     command: server /data --console-address ":9001"
@@ -64,6 +95,18 @@ services:
       retries: 3
     networks:
       - forecast-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.minio-console.rule=Host(`minio.skyrodev.ru`)"
+      - "traefik.http.routers.minio-console.entrypoints=websecure"
+      - "traefik.http.routers.minio-console.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.minio-console.service=minio-console"
+      - "traefik.http.services.minio-console.loadbalancer.server.port=9001"
+      - "traefik.http.routers.minio-api.rule=Host(`minio-api.skyrodev.ru`)"
+      - "traefik.http.routers.minio-api.entrypoints=websecure"
+      - "traefik.http.routers.minio-api.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.minio-api.service=minio-api"
+      - "traefik.http.services.minio-api.loadbalancer.server.port=9000"
 
   # MinIO Client для создания buckets
   minio-setup:
@@ -111,11 +154,6 @@ services:
       - 1G
       - --mode dev-container
       - --default-log-level=info
-    ports:
-      - "18081:18081"  # Schema Registry
-      - "18082:18082"  # Pandaproxy
-      - "19092:19092"  # Kafka API
-      - "19644:9644"   # Admin API
     volumes:
       - redpanda_data:/var/lib/redpanda/data
     healthcheck:
@@ -125,13 +163,13 @@ services:
       retries: 5
     networks:
       - forecast-network
+    labels:
+      - "traefik.enable=false"
 
   # Redis для Feature Store и кеширования
   redis:
     image: redis:7-alpine
     container_name: forecast-redis
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes
@@ -142,13 +180,13 @@ services:
       retries: 5
     networks:
       - forecast-network
+    labels:
+      - "traefik.enable=false"
 
   # Prometheus для метрик
   prometheus:
     image: prom/prometheus:latest
     container_name: forecast-prometheus
-    ports:
-      - "9090:9090"
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus_data:/prometheus
@@ -157,17 +195,23 @@ services:
       - '--storage.tsdb.path=/prometheus'
     networks:
       - forecast-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.prometheus.rule=Host(`prometheus.skyrodev.ru`)"
+      - "traefik.http.routers.prometheus.entrypoints=websecure"
+      - "traefik.http.routers.prometheus.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.prometheus.service=prometheus"
+      - "traefik.http.services.prometheus.loadbalancer.server.port=9090"
 
   # Grafana для визуализации
   grafana:
     image: grafana/grafana:latest
     container_name: forecast-grafana
-    ports:
-      - "3000:3000"
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin123
       GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: "https://grafana.skyrodev.ru"
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning
@@ -175,6 +219,34 @@ services:
       - prometheus
     networks:
       - forecast-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=Host(`grafana.skyrodev.ru`)"
+      - "traefik.http.routers.grafana.entrypoints=websecure"
+      - "traefik.http.routers.grafana.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.grafana.service=grafana"
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
+
+  # API Gateway
+  api-gateway:
+    build:
+      context: ../../backend/api_gateway
+      dockerfile: Dockerfile
+    container_name: forecast-api-gateway
+    networks:
+      - forecast-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.api-gateway.rule=Host(`api.skyrodev.ru`)"
+      - "traefik.http.routers.api-gateway.entrypoints=websecure"
+      - "traefik.http.routers.api-gateway.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.api-gateway.service=api-gateway"
+      - "traefik.http.services.api-gateway.loadbalancer.server.port=8000"
+      - "traefik.http.routers.api-gateway.middlewares=cors"
+      - "traefik.http.middlewares.cors.headers.accesscontrolallowmethods=GET,POST,PUT,DELETE,OPTIONS"
+      - "traefik.http.middlewares.cors.headers.accesscontrolalloworigin=*"
+      - "traefik.http.middlewares.cors.headers.accesscontrolmaxage=3600"
+      - "traefik.http.middlewares.cors.headers.addvaryheader=true"
 
 volumes:
   postgres_data:
@@ -184,6 +256,7 @@ volumes:
   redis_data:
   prometheus_data:
   grafana_data:
+  traefik_letsencrypt:
 
 networks:
   forecast-network:

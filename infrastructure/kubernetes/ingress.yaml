@@ -4,10 +4,11 @@ metadata:
   name: forecast-ingress
   namespace: forecast-system
   annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
 spec:
   rules:
-  - host: api.forecast.local
+  - host: api.skyrodev.ru
     http:
       paths:
       - path: /
@@ -17,7 +18,7 @@ spec:
             name: api-gateway
             port:
               number: 8000
-  - host: admin.forecast.local
+  - host: admin.skyrodev.ru
     http:
       paths:
       - path: /
@@ -27,4 +28,42 @@ spec:
             name: frontend
             port:
               number: 3000
+  - host: grafana.skyrodev.ru
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: grafana
+            port:
+              number: 3000
+  - host: prometheus.skyrodev.ru
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: prometheus
+            port:
+              number: 9090
+  - host: minio.skyrodev.ru
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: minio
+            port:
+              number: 9001
+  tls:
+  - hosts:
+    - api.skyrodev.ru
+    - admin.skyrodev.ru
+    - grafana.skyrodev.ru
+    - prometheus.skyrodev.ru
+    - minio.skyrodev.ru
+    secretName: forecast-tls
 

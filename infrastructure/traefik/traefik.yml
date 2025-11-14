@@ -1,0 +1,36 @@
+# Traefik статическая конфигурация
+api:
+  dashboard: true
+  insecure: true
+
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+  websecure:
+    address: ":443"
+
+providers:
+  docker:
+    endpoint: "unix:///var/run/docker.sock"
+    exposedByDefault: false
+    network: forecast-network
+
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: softprank@gmail.com
+      storage: /letsencrypt/acme.json
+      tlschallenge: {}
+      caserver: "https://acme-v02.api.letsencrypt.org/directory"
+
+log:
+  level: INFO
+
+accessLog: {}
+
